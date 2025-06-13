@@ -6,21 +6,31 @@ WORKDIR /app
 COPY pubspec.* ./
 RUN dart pub get
 
-# Copy app source code (except anything in .dockerignore) and AOT compile app.
+# Copy app source code and data
 COPY . .
+
+# Create data directory and set permissions
+RUN mkdir -p bin/data
+RUN chmod -R 755 bin/data
+
+# Compile the server
 RUN dart compile exe bin/server.dart -o bin/server
 
-# Build minimal serving image from AOT-compiled `/server`
-# and the pre-built AOT-runtime in the `/runtime/` directory of the base image.
+# Build minimal serving image
 FROM scratch
 COPY --from=build /runtime/ /
 COPY --from=build /app/bin/server /app/bin/
 COPY --from=build /app/bin/data /app/bin/data
 
-# Create data directory for persistence
-RUN mkdir -p /app/bin/data
+# Set working directory
+WORKDIR /app
 
-# Start server.
-EXPOSE 8080
-ENV PORT=8080
+# Set environment variables
+ENV PORT=10000
+ENV DART_VM_OPTIONS="--old-gen-heap-size=512"
+
+# Expose port
+EXPOSE 10000
+
+# Start server
 CMD ["/app/bin/server"]
