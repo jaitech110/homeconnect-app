@@ -6,6 +6,7 @@ import '../main.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
+import '../services/supabase_service.dart';
 
 class ResidentSignupPage extends StatefulWidget {
   const ResidentSignupPage({super.key});
@@ -199,35 +200,23 @@ class _ResidentSignupPageState extends State<ResidentSignupPage> {
         // Continue with signup anyway, the backend will process the base64 image
       }
       
-      // Now send the signup data
-      print("📝 Submitting resident signup data...");
-      final response = await http.post(
-        Uri.parse('$baseUrl/signup'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'role': 'Resident',
-          'first_name': firstNameController.text.trim(),
-          'last_name': lastNameController.text.trim(),
-          'email': emailController.text.trim(),
-          'password': passwordController.text,
-          'phone': phoneController.text.trim(),
-          'username': usernameController.text.trim(),
-          'address': addressController.text.trim(),
-          'building_name': selectedBuilding!,
-          'house_category': selectedHouseCategory!,
-          'property_type': selectedPropertyType!,
-          'category': category,
-          'resident_type': residentType,
-          'cnic_image_name': cnicImageName,
-          'cnic_image_base64': base64Image,
-          'cnic_image_url': cnicImageUrl, // Add the URL if we got one from the previous request
-          'is_approved': false,
-        }),
+      // Now send the signup data to Supabase
+      print("📝 Submitting resident signup data to Supabase...");
+      
+      final result = await SupabaseService.signUp(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+        firstName: firstNameController.text.trim(),
+        lastName: lastNameController.text.trim(),
+        role: 'resident',
+        phone: phoneController.text.trim(),
+        building: selectedBuilding!,
+        flatNo: flatNumberController.text.trim(),
       );
 
-      final result = jsonDecode(response.body);
+      print("📝 Supabase signup result: $result");
 
-      if (response.statusCode == 201) {
+      if (result['success'] == true) {
         showDialog(
           context: context,
           builder: (_) => AlertDialog(
@@ -246,7 +235,7 @@ class _ResidentSignupPageState extends State<ResidentSignupPage> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['error'] ?? 'Signup failed')),
+          SnackBar(content: Text(result['message'] ?? 'Signup failed')),
         );
       }
     } catch (e) {

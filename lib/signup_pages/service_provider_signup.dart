@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../main.dart'; // ✅ Adjust path if needed
+import '../services/supabase_service.dart';
 
 class ServiceProviderSignupPage extends StatefulWidget {
   const ServiceProviderSignupPage({super.key});
@@ -176,20 +177,25 @@ class _ServiceProviderSignupPageState extends State<ServiceProviderSignupPage> {
           }
         }
 
-        print("📝 Submitting Service Provider data...");
+        print("📝 Submitting Service Provider data to Supabase...");
 
-        final url = Uri.parse('$baseUrl/signup');
-        final response = await http.post(
-          url,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(payload),
+        // Use Supabase instead of local server
+        final result = await SupabaseService.signUp(
+          email: emailController.text.trim(),
+          password: passwordController.text,
+          firstName: firstNameController.text.trim(),
+          lastName: lastNameController.text.trim(),
+          role: 'service provider',
+          phone: phoneController.text.trim(),
+          businessName: companyController.text.trim(),
+          category: selectedBusinessCategory ?? 'Home & Utility Service',
         );
 
         setState(() => isLoading = false);
 
-        final data = jsonDecode(response.body);
+        print("📝 Supabase signup result: $result");
 
-        if (response.statusCode == 201) {
+        if (result['success'] == true) {
           showDialog(
             context: context,
             builder: (_) => AlertDialog(
@@ -211,7 +217,7 @@ class _ServiceProviderSignupPageState extends State<ServiceProviderSignupPage> {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['error'] ?? 'Signup failed')),
+            SnackBar(content: Text(result['message'] ?? 'Signup failed')),
           );
         }
       } catch (e) {

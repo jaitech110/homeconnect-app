@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../main.dart'; // ✅ Add this import for redirection
+import '../services/supabase_service.dart'; // ✅ Add Supabase service
 
 class UnionSignupPage extends StatefulWidget {
   const UnionSignupPage({super.key});
@@ -159,22 +160,25 @@ class _UnionSignupPageState extends State<UnionSignupPage> {
           }
         }
 
-        print("📝 Submitting Union Incharge data...");
+        print("📝 Submitting Union Incharge data to Supabase...");
 
-        // Send the signup request
-        final url = Uri.parse('$baseUrl/signup');
-        final response = await http.post(
-          url,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(payload),
+        // Use Supabase instead of local server
+        final result = await SupabaseService.signUp(
+          email: emailController.text.trim(),
+          password: passwordController.text,
+          firstName: firstNameController.text.trim(),
+          lastName: lastNameController.text.trim(),
+          role: 'union incharge',
+          phone: phoneController.text.trim(),
+          building: buildingNameController.text.trim(),
+          category: category,
         );
 
         setState(() => isLoading = false); // End loading state
 
-        print("📝 Response status: ${response.statusCode}");
-        print("📝 Response body: ${response.body}");
+        print("📝 Supabase signup result: $result");
 
-        if (response.statusCode == 201) {
+        if (result['success'] == true) {
           // Show success dialog
           showDialog(
             context: context,
@@ -197,9 +201,8 @@ class _UnionSignupPageState extends State<UnionSignupPage> {
             ),
           );
         } else {
-          final data = jsonDecode(response.body);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: ${data['error'] ?? 'Signup failed'}')),
+            SnackBar(content: Text('Error: ${result['message'] ?? 'Signup failed'}')),
           );
         }
       } catch (e) {
