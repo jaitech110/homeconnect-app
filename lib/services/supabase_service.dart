@@ -752,4 +752,69 @@ class SupabaseService {
         )
         .subscribe();
   }
+
+  // Special function to create admin user
+  static Future<Map<String, dynamic>> createAdminUser({
+    String email = 'admin@homeconnect.com',
+    String password = 'Admin@12345',
+    String firstName = 'Admin',
+    String lastName = 'User',
+    String phone = '+1234567890',
+  }) async {
+    try {
+      print('🔐 Creating admin user...');
+      print('📧 Email: $email');
+      
+      // Create auth user
+      final response = await _client.auth.signUp(
+        email: email,
+        password: password,
+      );
+
+      if (response.user != null) {
+        print('✅ Auth user created successfully');
+        
+        // Insert admin data into users table
+        final userData = {
+          'auth_user_id': response.user!.id,
+          'email': email,
+          'first_name': firstName,
+          'last_name': lastName,
+          'role': 'admin',
+          'phone': phone,
+          'building': '',
+          'flat_no': '',
+          'category': '',
+          'business_name': '',
+          'is_approved': true, // Admin is auto-approved
+        };
+        
+        await _client.from('users').insert(userData);
+        print('✅ Admin user data inserted successfully');
+
+        return {
+          'success': true,
+          'message': 'Admin user created successfully! You can now login with: $email',
+          'user_id': response.user!.id,
+          'credentials': {
+            'email': email,
+            'password': password,
+          }
+        };
+      } else {
+        return {'success': false, 'message': 'Failed to create admin authentication account'};
+      }
+    } catch (e) {
+      print('❌ Admin creation error: $e');
+      
+      if (e.toString().contains('already registered')) {
+        return {
+          'success': false, 
+          'message': 'Admin user already exists. Try logging in with: $email / $password'
+        };
+      }
+      
+      return {'success': false, 'message': 'Failed to create admin user: ${e.toString()}'};
+    }
+  }
 } 

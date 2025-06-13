@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Supabase imports
 import 'services/supabase_service.dart';
 import 'config/supabase_config.dart';
+import 'admin_setup_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -283,6 +284,7 @@ class _LoginPageState extends State<LoginPage> {
   final passwordController = TextEditingController();
 
   bool isHovering = false;
+  int _logoTapCount = 0; // For hidden admin setup access
 
   Future<void> login(BuildContext context) async {
     final email = emailController.text.trim();
@@ -499,10 +501,13 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Logo
-                      Image.asset(
-                        'assets/images/logo.png',
-                        height: logoHeight,
+                      // Logo (tap 5 times for admin setup)
+                      GestureDetector(
+                        onTap: _handleLogoTap,
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          height: logoHeight,
+                        ),
                       ),
                       SizedBox(height: spacing),
                       
@@ -749,6 +754,17 @@ class _LoginPageState extends State<LoginPage> {
         MaterialPageRoute(
           builder: (_) => SignupPageRouter(userType: selectedRole),
         ),
+      );
+    }
+  }
+
+  void _handleLogoTap() {
+    _logoTapCount++;
+    if (_logoTapCount >= 5) {
+      _logoTapCount = 0; // Reset counter
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => AdminSetupPage()),
       );
     }
   }
