@@ -70,48 +70,44 @@ class _ResidentSignupPageState extends State<ResidentSignupPage> {
         buildingsError = null;
       });
 
-      final baseUrl = getBaseUrl();
-      final response = await http.get(Uri.parse('$baseUrl/buildings'));
+      print("🏢 Fetching buildings from Supabase...");
+      final buildings = await SupabaseService.getBuildings();
       
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      // Process buildings data to separate apartments and societies
+      List<String> apartments = [];
+      List<String> societies = [];
+      
+      for (var building in buildings) {
+        final name = building['name']?.toString() ?? '';
+        final category = building['category']?.toString()?.toLowerCase() ?? '';
         
-        // Check if the response has the expected structure
-        if (data is Map<String, dynamic> && 
-            data.containsKey('apartments') && 
-            data.containsKey('societies')) {
-          setState(() {
-            registeredApartments = List<String>.from(data['apartments'] ?? []);
-            registeredSocieties = List<String>.from(data['societies'] ?? []);
-            isLoadingBuildings = false;
-            buildingsError = null;
-          });
-          
-          print("✅ Loaded ${registeredApartments.length} apartments and ${registeredSocieties.length} societies");
-        } else {
-          // Handle legacy format or unexpected structure
-          setState(() {
-            registeredApartments = [];
-            registeredSocieties = [];
-            isLoadingBuildings = false;
-            buildingsError = "Unexpected data format from server";
-          });
+        if (name.isNotEmpty) {
+          if (category.contains('apartment')) {
+            apartments.add(name);
+          } else if (category.contains('society')) {
+            societies.add(name);
+          } else {
+            // Default to apartment if category is unclear
+            apartments.add(name);
+          }
         }
-      } else {
-        setState(() {
-          registeredApartments = [];
-          registeredSocieties = [];
-          isLoadingBuildings = false;
-          buildingsError = "Failed to load buildings (Status: ${response.statusCode})";
-        });
       }
+      
+      setState(() {
+        registeredApartments = apartments;
+        registeredSocieties = societies;
+        isLoadingBuildings = false;
+        buildingsError = null;
+      });
+      
+      print("✅ Loaded ${apartments.length} apartments and ${societies.length} societies from Supabase");
     } catch (e) {
-      print("❌ Error fetching buildings: $e");
+      print("❌ Error fetching buildings from Supabase: $e");
       setState(() {
         registeredApartments = [];
         registeredSocieties = [];
         isLoadingBuildings = false;
-        buildingsError = "Connection error: ${e.toString()}";
+        buildingsError = "Failed to load buildings: ${e.toString()}";
       });
     }
   }
@@ -177,30 +173,9 @@ class _ResidentSignupPageState extends State<ResidentSignupPage> {
     print("🖼️ CNIC image prepared for upload: ${cnicImageName} (${cnicImageBytes!.length} bytes)");
 
     try {
-      final baseUrl = getBaseUrl();
+      setState(() => _isSubmitting = true);
       
-      // First upload the CNIC image separately
-      print("🖼️ Uploading CNIC image using base64...");
-      final imageUploadResponse = await http.post(
-        Uri.parse('$baseUrl/upload_cnic_base64'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'cnic_data': base64Image,
-          'filename': cnicImageName,
-        }),
-      );
-      
-      String cnicImageUrl = "";
-      if (imageUploadResponse.statusCode == 200) {
-        final imageData = jsonDecode(imageUploadResponse.body);
-        cnicImageUrl = imageData['url'];
-        print("✅ CNIC image uploaded successfully: $cnicImageUrl");
-      } else {
-        print("❌ Failed to upload CNIC image: ${imageUploadResponse.body}");
-        // Continue with signup anyway, the backend will process the base64 image
-      }
-      
-      // Now send the signup data to Supabase
+      // Send the signup data directly to Supabase (no separate image upload needed)
       print("📝 Submitting resident signup data to Supabase...");
       
       final result = await SupabaseService.signUp(
@@ -212,36 +187,67 @@ class _ResidentSignupPageState extends State<ResidentSignupPage> {
         phone: phoneController.text.trim(),
         building: selectedBuilding!,
         flatNo: flatNumberController.text.trim(),
+        category: selectedHouseCategory!,
       );
 
+      setState(() => _isSubmitting = false);
       print("📝 Supabase signup result: $result");
 
       if (result['success'] == true) {
         showDialog(
           context: context,
+          barrierDismissible: false,
           builder: (_) => AlertDialog(
-            title: const Text('Registration Successful'),
-            content: const Text('Please wait for admin approval.'),
+            title: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 28),
+                SizedBox(width: 12),
+                Text('Registration Successful'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Your resident application has been submitted successfully!'),
+                SizedBox(height: 12),
+                Text(
+                  'Next steps:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text('• Wait for union incharge approval'),
+                Text('• You will receive notification once approved'),
+                Text('• Then you can access all community features'),
+              ],
+            ),
             actions: [
-              TextButton(
+              ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) =>  LoginPage()));
+                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginPage()));
                 },
-                child: const Text('OK'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[600]),
+                child: const Text('Go to Login'),
               ),
             ],
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result['message'] ?? 'Signup failed')),
+          SnackBar(
+            content: Text(result['message'] ?? 'Signup failed'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } catch (e) {
+      setState(() => _isSubmitting = false);
       print('❌ Exception during signup: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Exception: $e')),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }

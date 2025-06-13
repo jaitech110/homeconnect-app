@@ -92,94 +92,9 @@ class _ServiceProviderSignupPageState extends State<ServiceProviderSignupPage> {
       setState(() => isLoading = true);
 
       try {
-        final baseUrl = getBaseUrl();
-        String cnicImageUrl = "";
-        String? base64Image;
-        
-        // Prepare image data based on platform
-        if (kIsWeb) {
-          // For web platform, send image as base64
-          print("🖼️ Preparing CNIC image using base64 (web platform)...");
-          base64Image = base64Encode(cnicImageBytes!);
-          
-          // Try to upload the image, but continue even if it fails
-          try {
-            final imageUploadResponse = await http.post(
-              Uri.parse('$baseUrl/upload_cnic_base64'),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'cnic_data': base64Image,
-                'filename': cnicImageName,
-              }),
-            );
-            
-            if (imageUploadResponse.statusCode == 200) {
-              final imageData = jsonDecode(imageUploadResponse.body);
-              cnicImageUrl = imageData['url'];
-              print("✅ CNIC image uploaded successfully: $cnicImageUrl");
-            } else {
-              print("⚠️ Image upload failed, continuing with base64 data in signup");
-            }
-          } catch (uploadError) {
-            print("⚠️ Image upload endpoint not available, continuing with base64 data: $uploadError");
-          }
-        } else {
-          // For mobile platforms, try multipart upload but continue if it fails
-          print("🖼️ Preparing CNIC image using multipart request (mobile platform)...");
-          
-          try {
-            final imageUploadRequest = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload_cnic'));
-            imageUploadRequest.files.add(
-              await http.MultipartFile.fromPath('cnic', cnicImage!.path),
-            );
-            
-            final imageUploadResponse = await imageUploadRequest.send();
-            final imageUploadResponseData = await http.Response.fromStream(imageUploadResponse);
-            
-            if (imageUploadResponseData.statusCode == 200) {
-              final imageData = jsonDecode(imageUploadResponseData.body);
-              cnicImageUrl = imageData['url'];
-              print("✅ CNIC image uploaded successfully: $cnicImageUrl");
-            } else {
-              print("⚠️ Image upload failed, continuing with file data");
-            }
-          } catch (uploadError) {
-            print("⚠️ Image upload endpoint not available: $uploadError");
-          }
-        }
-
-        // Prepare the signup payload
-        final payload = {
-          'role': 'Service Provider',
-          'email': emailController.text.trim(),
-          'password': passwordController.text,
-          'first_name': firstNameController.text.trim(),
-          'last_name': lastNameController.text.trim(),
-          'phone': phoneController.text.trim(),
-          'username': companyController.text.trim(),
-          'address': addressController.text.trim(),
-          'postal_code': postalCodeController.text.trim(),
-          'business_name': companyController.text.trim(),
-          'category': selectedBusinessCategory,
-          'is_approved': false, // Explicitly set is_approved to false
-        };
-
-        // Add image data to payload
-        if (cnicImageUrl.isNotEmpty) {
-          payload['cnic_image_url'] = cnicImageUrl;
-        }
-        
-        // Include base64 data for web platform or as fallback
-        if (base64Image != null) {
-          payload['cnic_image_base64'] = base64Image;
-          if (cnicImageName != null) {
-            payload['cnic_image_name'] = cnicImageName!;
-          }
-        }
-
         print("📝 Submitting Service Provider data to Supabase...");
 
-        // Use Supabase instead of local server
+        // Use Supabase for signup (no separate image upload needed)
         final result = await SupabaseService.signUp(
           email: emailController.text.trim(),
           password: passwordController.text,
@@ -192,38 +107,66 @@ class _ServiceProviderSignupPageState extends State<ServiceProviderSignupPage> {
         );
 
         setState(() => isLoading = false);
-
         print("📝 Supabase signup result: $result");
 
         if (result['success'] == true) {
           showDialog(
             context: context,
+            barrierDismissible: false,
             builder: (_) => AlertDialog(
-              title: const Text('Registration Successful'),
-              content: const Text('Please wait for admin approval.'),
+              title: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green, size: 28),
+                  SizedBox(width: 12),
+                  Text('Registration Successful'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Your service provider application has been submitted successfully!'),
+                  SizedBox(height: 12),
+                  Text(
+                    'Next steps:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text('• Wait for admin approval'),
+                  Text('• You will receive notification once approved'),
+                  Text('• Then you can start offering services to residents'),
+                ],
+              ),
               actions: [
-                TextButton(
+                ElevatedButton(
                   onPressed: () {
-                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context);
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(builder: (_) => LoginPage()),
                     );
                   },
-                  child: const Text('OK'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green[600]),
+                  child: const Text('Go to Login'),
                 ),
               ],
             ),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(result['message'] ?? 'Signup failed')),
+            SnackBar(
+              content: Text(result['message'] ?? 'Signup failed'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       } catch (e) {
         setState(() => isLoading = false);
+        print("❌ Signup exception: $e");
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exception: ${e.toString()}')),
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
