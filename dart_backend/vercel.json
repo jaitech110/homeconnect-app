@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "bin/server.dart": {
+      "runtime": "dart"
+    }
+  },
+  "routes": [
+    { "src": "/(.*)", "dest": "/bin/server.dart" }
+  ]
+} 

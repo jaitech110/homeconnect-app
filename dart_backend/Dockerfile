@@ -15,7 +15,12 @@ RUN dart compile exe bin/server.dart -o bin/server
 FROM scratch
 COPY --from=build /runtime/ /
 COPY --from=build /app/bin/server /app/bin/
+COPY --from=build /app/bin/data /app/bin/data
+
+# Create data directory for persistence
+RUN mkdir -p /app/bin/data
 
 # Start server.
 EXPOSE 8080
+ENV PORT=8080
 CMD ["/app/bin/server"]
