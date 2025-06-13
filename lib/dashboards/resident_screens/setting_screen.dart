@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../main.dart'; // Import for getBaseUrl function
+import '../../services/supabase_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String userId;
@@ -22,54 +23,127 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final newPasswordController = TextEditingController();
 
   Future<void> updateProfile() async {
-    final response = await http.post(
-      Uri.parse('${getBaseUrl()}/resident/update_profile'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'user_id': widget.userId,
-        'first_name': firstNameController.text,
-        'last_name': lastNameController.text,
-        'phone': phoneController.text,
-        'username': usernameController.text,
-        'address': addressController.text,
-      }),
-    );
+    if (!_formKey.currentState!.validate()) return;
 
-    final data = jsonDecode(response.body);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(data['message'] ?? 'Update failed')),
-    );
+    try {
+      final result = await SupabaseService.updateProfile(
+        userId: widget.userId,
+        firstName: firstNameController.text.trim().isEmpty ? null : firstNameController.text.trim(),
+        lastName: lastNameController.text.trim().isEmpty ? null : lastNameController.text.trim(),
+        phone: phoneController.text.trim().isEmpty ? null : phoneController.text.trim(),
+        address: addressController.text.trim().isEmpty ? null : addressController.text.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Update failed'),
+          backgroundColor: result['success'] ? Colors.green : Colors.red,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> changePassword() async {
-    final response = await http.post(
-      Uri.parse('${getBaseUrl()}/resident/change_password'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'user_id': widget.userId,
-        'new_password': newPasswordController.text,
-      }),
-    );
+    if (newPasswordController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a new password'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
 
-    final data = jsonDecode(response.body);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(data['message'] ?? 'Password update failed')),
-    );
+    if (newPasswordController.text.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password must be at least 6 characters long'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final result = await SupabaseService.changePassword(
+        newPassword: newPasswordController.text.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Password update failed'),
+          backgroundColor: result['success'] ? Colors.green : Colors.red,
+        ),
+      );
+
+      if (result['success']) {
+        newPasswordController.clear();
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> deleteAccount() async {
-    final response = await http.delete(
-      Uri.parse('${getBaseUrl()}/resident/delete_account/${widget.userId}'),
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+          'Are you sure you want to delete your account? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
 
-    final data = jsonDecode(response.body);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(data['message'] ?? 'Account deletion failed')),
-    );
+    if (confirmed != true) return;
 
-    if (response.statusCode == 200) {
-      // Navigate to login
-      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+    try {
+      final result = await SupabaseService.deleteAccount(
+        userId: widget.userId,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] ?? 'Account deletion failed'),
+          backgroundColor: result['success'] ? Colors.green : Colors.red,
+        ),
+      );
+
+      if (result['success']) {
+        // Navigate to login screen
+        Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 

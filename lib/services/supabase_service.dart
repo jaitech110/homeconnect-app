@@ -537,6 +537,104 @@ class SupabaseService {
 
   static bool get isLoggedIn => _client.auth.currentUser != null;
 
+  // Profile Management
+  static Future<Map<String, dynamic>> updateProfile({
+    required String userId,
+    String? firstName,
+    String? lastName,
+    String? phone,
+    String? address,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{};
+      
+      if (firstName != null) updateData['first_name'] = firstName;
+      if (lastName != null) updateData['last_name'] = lastName;
+      if (phone != null) updateData['phone'] = phone;
+      if (address != null) updateData['address'] = address;
+      
+      updateData['updated_at'] = DateTime.now().toIso8601String();
+
+      await _client
+          .from('users')
+          .update(updateData)
+          .eq('id', userId);
+
+      return {
+        'success': true,
+        'message': 'Profile updated successfully',
+      };
+    } catch (e) {
+      print('Error updating profile: $e');
+      return {
+        'success': false,
+        'message': 'Failed to update profile: ${e.toString()}',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> changePassword({
+    required String newPassword,
+  }) async {
+    try {
+      final user = _client.auth.currentUser;
+      if (user == null) {
+        return {
+          'success': false,
+          'message': 'User not authenticated',
+        };
+      }
+
+      await _client.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+
+      return {
+        'success': true,
+        'message': 'Password changed successfully',
+      };
+    } catch (e) {
+      print('Error changing password: $e');
+      return {
+        'success': false,
+        'message': 'Failed to change password: ${e.toString()}',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteAccount({
+    required String userId,
+  }) async {
+    try {
+      // Get the auth_user_id before deleting
+      final userData = await _client
+          .from('users')
+          .select('auth_user_id')
+          .eq('id', userId)
+          .single();
+
+      // Delete from users table first
+      await _client.from('users').delete().eq('id', userId);
+
+      // Delete from auth (this will cascade to related data)
+      await _client.auth.admin.deleteUser(userData['auth_user_id']);
+
+      // Sign out the current user
+      await _client.auth.signOut();
+
+      return {
+        'success': true,
+        'message': 'Account deleted successfully',
+      };
+    } catch (e) {
+      print('Error deleting account: $e');
+      return {
+        'success': false,
+        'message': 'Failed to delete account: ${e.toString()}',
+      };
+    }
+  }
+
   // Real-time subscriptions for live updates
   static RealtimeChannel subscribeToTable(String table, void Function(Map<String, dynamic>) onData) {
     return _client
