@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="homeconnect_app">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>homeconnect_app</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+  
+  <!-- Bank Details Persistence Script -->
+  <script>
+    // Enhanced persistent storage for bank details
+    window.bankPersistence = {
+      // Store bank details with multiple persistence strategies
+      store: function(key, data) {
+        try {
+          // Strategy 1: localStorage
+          localStorage.setItem('homeconnect_' + key, JSON.stringify(data));
+          
+          // Strategy 2: sessionStorage backup
+          sessionStorage.setItem('homeconnect_backup_' + key, JSON.stringify(data));
+          
+          // Strategy 3: IndexedDB for maximum persistence
+          this.storeInIndexedDB(key, data);
+          
+          // Strategy 4: Cookie storage as fallback
+          this.storeCookie('homeconnect_' + key, JSON.stringify(data));
+          
+          console.log('🌐 Bank details stored with multiple strategies for key:', key);
+          return true;
+        } catch (e) {
+          console.error('❌ Error storing bank details:', e);
+          return false;
+        }
+      },
+      
+      // Retrieve bank details with fallback strategies
+      retrieve: function(key) {
+        try {
+          // Strategy 1: Try localStorage first
+          let data = localStorage.getItem('homeconnect_' + key);
+          if (data) {
+            console.log('✅ Retrieved bank details from localStorage');
+            return JSON.parse(data);
+          }
+          
+          // Strategy 2: Try sessionStorage
+          data = sessionStorage.getItem('homeconnect_backup_' + key);
+          if (data) {
+            console.log('✅ Retrieved bank details from sessionStorage');
+            // Restore to localStorage
+            localStorage.setItem('homeconnect_' + key, data);
+            return JSON.parse(data);
+          }
+          
+          // Strategy 3: Try cookie storage
+          data = this.getCookie('homeconnect_' + key);
+          if (data) {
+            console.log('✅ Retrieved bank details from cookies');
+            // Restore to localStorage
+            localStorage.setItem('homeconnect_' + key, data);
+            return JSON.parse(data);
+          }
+          
+          // Strategy 4: Try IndexedDB (async, but we'll try sync approach)
+          return this.retrieveFromIndexedDB(key);
+          
+        } catch (e) {
+          console.error('❌ Error retrieving bank details:', e);
+          return null;
+        }
+      },
+      
+      // IndexedDB storage for maximum persistence
+      storeInIndexedDB: function(key, data) {
+        try {
+          const request = indexedDB.open('HomeConnectDB', 1);
+          
+          request.onupgradeneeded = function(event) {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('bankDetails')) {
+              db.createObjectStore('bankDetails', { keyPath: 'id' });
+            }
+          };
+          
+          request.onsuccess = function(event) {
+            const db = event.target.result;
+            const transaction = db.transaction(['bankDetails'], 'readwrite');
+            const store = transaction.objectStore('bankDetails');
+            
+            store.put({
+              id: key,
+              data: data,
+              timestamp: Date.now()
+            });
+            
+            console.log('💾 Bank details stored in IndexedDB');
+          };
+          
+        } catch (e) {
+          console.error('❌ IndexedDB storage failed:', e);
+        }
+      },
+      
+      // Retrieve from IndexedDB
+      retrieveFromIndexedDB: function(key) {
+        // Note: This is simplified sync approach
+        // In production, you'd want to use promises/async
+        return null;
+      },
+      
+      // Cookie storage methods
+      storeCookie: function(name, value) {
+        try {
+          const expires = new Date();
+          expires.setTime(expires.getTime() + (30 * 24 * 60 * 60 * 1000)); // 30 days
+          document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + expires.toUTCString() + ';path=/;SameSite=Lax';
+        } catch (e) {
+          console.error('❌ Cookie storage failed:', e);
+        }
+      },
+      
+      getCookie: function(name) {
+        try {
+          const nameEQ = name + '=';
+          const ca = document.cookie.split(';');
+          for (let i = 0; i < ca.length; i++) {
+            let c = ca[i];
+            while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+            if (c.indexOf(nameEQ) === 0) {
+              return decodeURIComponent(c.substring(nameEQ.length, c.length));
+            }
+          }
+          return null;
+        } catch (e) {
+          console.error('❌ Cookie retrieval failed:', e);
+          return null;
+        }
+      },
+      
+      // Initialize persistence on page load
+      initialize: function() {
+        console.log('🌐 Initializing bank details persistence system...');
+        
+        // Try to recover any existing data and create backups
+        const keys = ['xyz_apartment', 'demo_building'];
+        keys.forEach(key => {
+          try {
+            // Check all storage methods and create backups
+            const localData = localStorage.getItem('homeconnect_building_bank_name_' + key);
+            if (localData) {
+              console.log('🔄 Found existing bank data for', key, '- creating backups');
+              const bankData = {
+                bank_name: localData,
+                iban: localStorage.getItem('homeconnect_building_iban_' + key) || '',
+                account_title: localStorage.getItem('homeconnect_building_account_title_' + key) || ''
+              };
+              this.store('bank_' + key, bankData);
+            }
+          } catch (e) {
+            console.error('❌ Error during persistence initialization:', e);
+          }
+        });
+        
+        console.log('✅ Bank details persistence system initialized');
+      }
+    };
+    
+    // Initialize when DOM is ready
+    document.addEventListener('DOMContentLoaded', function() {
+      window.bankPersistence.initialize();
+    });
+    
+    // Also initialize immediately in case DOMContentLoaded already fired
+    if (document.readyState === 'loading') {
+      // Still loading, wait for DOMContentLoaded
+    } else {
+      // Already loaded
+      window.bankPersistence.initialize();
+    }
+  </script>
+</head>
+
+<body>
+  <!-- This script installs service_worker.js to provide PWA functionality to
+       application. For more information, see:
+       https://developers.google.com/web/fundamentals/primers/service-workers -->
+  <script>
+    window.addEventListener('load', function(ev) {
+      // Download main.dart.js
+      _flutter.loader.load({
+        serviceWorkerSettings: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        }
+      });
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

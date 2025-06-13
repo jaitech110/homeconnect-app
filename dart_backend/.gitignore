@@ -1,0 +1,6 @@
+# https://dart.dev/guides/libraries/private-files
+# Created by `dart pub`
+.dart_tool/
+
+# Data storage directory (contains user data)
+data/

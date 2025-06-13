@@ -1,0 +1,6 @@
+{
+  "title": "Test Election",
+  "description": "Test election description",
+  "choices": ["Yes", "No"],
+  "union_incharge_id": "4a477715-06e9-4faf-bf8e-a693ad5d358e"
+} 
