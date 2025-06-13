@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async'; // Add this import for Timer
 import '../../main.dart'; // Import to access getBaseUrl function
+import '../../services/supabase_service.dart'; // Import SupabaseService
 import 'union_incharge_detail_screen.dart'; // Import the detail screen
 
 class AdminApprovalScreen extends StatefulWidget {
@@ -21,8 +22,8 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
   void initState() {
     super.initState();
     fetchPendingUsers();
-    // Set up periodic refresh every 5 seconds
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    // Set up periodic refresh every 30 seconds (reduced frequency for Supabase)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) {
         fetchPendingUsers();
       }
@@ -39,61 +40,22 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
     if (!mounted) return;
 
     try {
-      print("🔍 Attempting to fetch pending users...");
+      print("🔍 Fetching pending users from Supabase...");
       
-      // Try both endpoints to ensure we get data
-      final baseUrl = getBaseUrl();
-      final standardEndpoint = Uri.parse('$baseUrl/admin/pending_users');
-      final debugEndpoint = Uri.parse('$baseUrl/debug/pending_users');
+      final pendingApprovals = await SupabaseService.getPendingApprovals();
       
-      // First try debug endpoint
-      print("🔍 Trying debug endpoint: $debugEndpoint");
-      final debugResponse = await http.get(debugEndpoint);
-      
-      if (debugResponse.statusCode == 200) {
-        final debugData = jsonDecode(debugResponse.body);
-        print("📊 Debug data: ${debugData['pending_users_count']} pending users found");
-        
-        // If there are pending users, proceed with standard endpoint
-        if (debugData['pending_users_count'] > 0) {
-          print("🔍 Trying standard endpoint: $standardEndpoint");
-          final response = await http.get(standardEndpoint);
-          
-          if (response.statusCode == 200) {
-            final data = jsonDecode(response.body);
-            print("📝 Standard endpoint response: $data");
-            
-            setState(() {
-              pendingUsers = List<Map<String, dynamic>>.from(data);
-              isLoading = false;
-            });
-            
-            return;
-          }
-        }
-        
-        // If we couldn't get data from standard endpoint or there are no pending users,
-        // use the debug endpoint data
+      if (mounted) {
         setState(() {
-          pendingUsers = List<Map<String, dynamic>>.from(debugData['pending_users'].map((user) => {
-            'id': user['id'],
-            'first_name': user['first_name'],
-            'last_name': user['last_name'],
-            'email': user['email'],
-            'role': user['role'],
-            'phone': 'Not provided', // Default value since debug endpoint might not have this
-            'address': 'Not provided', // Default value
-            'cnic_image_url': null, // Default value
-          }));
+          pendingUsers = pendingApprovals;
           isLoading = false;
         });
-      } else {
-        throw Exception('Failed to fetch pending users from debug endpoint: ${debugResponse.statusCode}');
+        
+        print("✅ Successfully fetched ${pendingApprovals.length} pending users from Supabase");
       }
     } catch (e) {
       if (!mounted) return;
 
-      print('❌ Error fetching pending users: $e');
+      print('❌ Error fetching pending users from Supabase: $e');
       setState(() {
         isLoading = false;
       });
@@ -114,27 +76,40 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
     await fetchPendingUsers();
   }
 
-  Future<void> _approveUser(int userId) async {
+  Future<void> _approveUser(String userId) async {
     try {
-      final response = await http.post(
-        Uri.parse('${getBaseUrl()}/admin/approve_user/$userId'),
-      );
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User approved successfully')),
-        );
-        fetchPendingUsers();
+      print("🔄 Approving user with ID: $userId");
+      
+      final success = await SupabaseService.approveUser(userId);
+      
+      if (success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('User approved successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          fetchPendingUsers(); // Refresh the list
+        }
+        print("✅ User approved successfully");
       } else {
         throw Exception('Failed to approve user');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to approve user')),
-      );
+      print("❌ Error approving user: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to approve user: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
-  Future<void> _rejectUser(int userId) async {
+  Future<void> _rejectUser(String userId) async {
     try {
       // Show confirmation dialog
       bool? confirm = await showDialog<bool>(
@@ -142,13 +117,16 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
         builder: (BuildContext context) {
           return AlertDialog(
             title: const Text('Confirm Rejection'),
-            content: const Text('Are you sure you want to reject this user?'),
+            content: const Text(
+              'Are you sure you want to reject this user? This will permanently delete their account.',
+            ),
             actions: <Widget>[
               TextButton(
                 child: const Text('Cancel'),
                 onPressed: () => Navigator.of(context).pop(false),
               ),
               TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
                 child: const Text('Reject'),
                 onPressed: () => Navigator.of(context).pop(true),
               ),
@@ -158,24 +136,35 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
       );
 
       if (confirm == true) {
-        final response = await http.delete(
-          Uri.parse('${getBaseUrl()}/admin/remove_user/$userId'),
-        );
-        if (response.statusCode == 200) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('User rejected successfully')),
-          );
-          fetchPendingUsers();
+        print("🔄 Rejecting user with ID: $userId");
+        
+        final success = await SupabaseService.rejectUser(userId);
+        
+        if (success) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('User rejected successfully'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            fetchPendingUsers(); // Refresh the list
+          }
+          print("✅ User rejected successfully");
         } else {
           throw Exception('Failed to reject user');
         }
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to reject user')),
-      );
+      print("❌ Error rejecting user: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to reject user: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -192,16 +181,7 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _refreshList,
-          ),
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            tooltip: 'Debug Users',
-            onPressed: _checkDebugEndpoint,
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_circle),
-            tooltip: 'Create Test User',
-            onPressed: _createTestUser,
+            tooltip: 'Refresh',
           ),
         ],
       ),
@@ -219,6 +199,12 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    size: isWebLayout ? 80 : 64,
+                    color: Colors.green,
+                  ),
+                  SizedBox(height: isWebLayout ? 24 : 16),
                   Text(
                     'No pending approvals',
                     style: TextStyle(
@@ -226,7 +212,15 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  SizedBox(height: isWebLayout ? 16 : 12),
+                  Text(
+                    'All users have been processed',
+                    style: TextStyle(
+                      fontSize: isWebLayout ? 14 : 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  SizedBox(height: isWebLayout ? 24 : 16),
                   ElevatedButton(
                     onPressed: _refreshList,
                     child: const Text('Refresh'),
@@ -249,83 +243,102 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Name: ${user['first_name']} ${user['last_name']}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: isWebLayout ? 16 : 14,
-                            ),
-                          ),
-                          SizedBox(height: isWebLayout ? 8 : 4),
-                          Text(
-                            'Role: ${user['role']}',
-                            style: TextStyle(fontSize: isWebLayout ? 15 : 14),
-                          ),
-                          Text(
-                            'Email: ${user['email']}',
-                            style: TextStyle(fontSize: isWebLayout ? 15 : 14),
-                          ),
-                          Text(
-                            'Phone: ${user['phone'] ?? 'Not provided'}',
-                            style: TextStyle(fontSize: isWebLayout ? 15 : 14),
-                          ),
-                          if (user['role'] == 'Union Incharge')
-                            Text(
-                              'Property: ${user['building_name'] ?? 'Not specified'}',
-                              style: TextStyle(fontSize: isWebLayout ? 15 : 14),
-                            ),
-                          SizedBox(height: isWebLayout ? 12 : 8),
-                          if (user['cnic_image_url'] != null)
-                            Container(
-                              height: isWebLayout ? 120 : 100,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[200],
-                                border: Border.all(color: Colors.grey),
-                                borderRadius: BorderRadius.circular(8),
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: Colors.deepPurple,
+                                child: Text(
+                                  '${user['first_name']?[0] ?? ''}${user['last_name']?[0] ?? ''}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
-                              child: Row(
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: Text(
-                                      'CNIC Image (Preview)',
+                              SizedBox(width: isWebLayout ? 16 : 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim(),
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        color: Colors.grey[800],
-                                        fontSize: isWebLayout ? 15 : 14,
+                                        fontSize: isWebLayout ? 16 : 14,
                                       ),
                                     ),
-                                  ),
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: const BorderRadius.only(
-                                          topRight: Radius.circular(8),
-                                          bottomRight: Radius.circular(8)
-                                      ),
-                                      child: Image.network(
-                                        user['cnic_image_url'],
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) =>
-                                        const Center(child: Text('Tap to view')),
-                                        height: isWebLayout ? 120 : 100,
+                                    Text(
+                                      user['role'] ?? 'Unknown Role',
+                                      style: TextStyle(
+                                        fontSize: isWebLayout ? 14 : 12,
+                                        color: Colors.grey[600],
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            )
-                          else
-                            Text(
-                              'No CNIC image provided',
-                              style: TextStyle(fontSize: isWebLayout ? 15 : 14),
-                            ),
-                          SizedBox(height: isWebLayout ? 12 : 8),
-                          Text(
-                            'Tap for details and approval options',
-                            style: TextStyle(
-                              color: Colors.blue[700],
-                              fontStyle: FontStyle.italic,
-                              fontSize: isWebLayout ? 14 : 12,
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                                ),
+                                child: Text(
+                                  'Pending',
+                                  style: TextStyle(
+                                    color: Colors.orange[700],
+                                    fontSize: isWebLayout ? 12 : 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isWebLayout ? 16 : 12),
+                          _buildInfoRow(Icons.email, user['email'] ?? 'No email', isWebLayout),
+                          _buildInfoRow(Icons.phone, user['phone'] ?? 'No phone', isWebLayout),
+                          if (user['role'] == 'Union Incharge')
+                            _buildInfoRow(Icons.business, user['building_name'] ?? 'No building', isWebLayout),
+                          if (user['address'] != null && user['address'].toString().isNotEmpty)
+                            _buildInfoRow(Icons.location_on, user['address'], isWebLayout),
+                          SizedBox(height: isWebLayout ? 16 : 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _approveUser(user['id'].toString()),
+                                  icon: const Icon(Icons.check, size: 16),
+                                  label: const Text('Approve'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: isWebLayout ? 12 : 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _rejectUser(user['id'].toString()),
+                                  icon: const Icon(Icons.close, size: 16),
+                                  label: const Text('Reject'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isWebLayout ? 8 : 4),
+                          Center(
+                            child: Text(
+                              'Tap for more details',
+                              style: TextStyle(
+                                color: Colors.blue[700],
+                                fontStyle: FontStyle.italic,
+                                fontSize: isWebLayout ? 12 : 10,
+                              ),
                             ),
                           ),
                         ],
@@ -341,118 +354,83 @@ class _AdminApprovalScreenState extends State<AdminApprovalScreen> {
     );
   }
 
+  Widget _buildInfoRow(IconData icon, String text, bool isWebLayout) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: isWebLayout ? 4 : 2),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: isWebLayout ? 16 : 14,
+            color: Colors.grey[600],
+          ),
+          SizedBox(width: isWebLayout ? 8 : 6),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: isWebLayout ? 14 : 12,
+                color: Colors.grey[800],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   double _getMaxWidth(double screenWidth) {
     if (screenWidth <= 800) return 500;
     if (screenWidth <= 1200) return 600;
     return 800;
   }
 
-  Future<void> _checkDebugEndpoint() async {
-    try {
-      setState(() => isLoading = true);
-      
-      final response = await http.get(
-        Uri.parse('${getBaseUrl()}/debug/pending_users'),
-      );
-      
-      setState(() => isLoading = false);
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        // Show the debug information in a dialog
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('User Debug Info'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Total Users: ${data['total_users']}'),
-                  Text('Pending Users: ${data['pending_users_count']}'),
-                  const Divider(),
-                  const Text('Users by Role:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  for (var entry in data['users_by_role'].entries)
-                    Text('${entry.key}: ${entry.value}'),
-                  const Divider(),
-                  const Text('Pending Users:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  for (var user in data['pending_users'])
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('${user['first_name']} ${user['last_name']} (${user['role']})'),
-                          Text('Email: ${user['email']}'),
-                          Text('ID: ${user['id']}'),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Debug endpoint error: ${response.statusCode}')),
-        );
-      }
-    } catch (e) {
-      setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Debug endpoint error: $e')),
-      );
-    }
-  }
-
-  Future<void> _createTestUser() async {
-    try {
-      setState(() => isLoading = true);
-      
-      final response = await http.get(
-        Uri.parse('${getBaseUrl()}/admin/create_test_user'),
-      );
-      
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = jsonDecode(response.body);
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(data['message'])),
-        );
-        
-        // Refresh the list to show the new user
-        await fetchPendingUsers();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create test user: ${response.statusCode}')),
-        );
-        setState(() => isLoading = false);
-      }
-    } catch (e) {
-      setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error creating test user: $e')),
-      );
-    }
-  }
-
   Future<void> _openUserDetails(Map<String, dynamic> user) async {
     if (user['role'] != 'Union Incharge') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Detailed view only available for Union Incharge users')),
+      // For non-union users, show a simple details dialog
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('${user['first_name']} ${user['last_name']}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Role: ${user['role']}'),
+              Text('Email: ${user['email']}'),
+              Text('Phone: ${user['phone'] ?? 'Not provided'}'),
+              if (user['address'] != null)
+                Text('Address: ${user['address']}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _approveUser(user['id'].toString());
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              child: const Text('Approve'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _rejectUser(user['id'].toString());
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Reject'),
+            ),
+          ],
+        ),
       );
       return;
     }
     
+    // For Union Incharge users, navigate to detailed screen
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
