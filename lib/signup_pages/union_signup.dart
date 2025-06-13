@@ -76,6 +76,31 @@ class _UnionSignupPageState extends State<UnionSignupPage> {
       setState(() => isLoading = true);
 
       try {
+        // First check Supabase connectivity
+        print("🌐 Checking Supabase connectivity...");
+        final isConnected = await SupabaseService.checkSupabaseConnectivity();
+        
+        if (!isConnected) {
+          setState(() => isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('❌ Cannot connect to Supabase'),
+                  SizedBox(height: 4),
+                  Text('Please check your internet connection and try again.', 
+                       style: TextStyle(fontSize: 12)),
+                ],
+              ),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+            ),
+          );
+          return;
+        }
+
         print("📝 Submitting Union Incharge data to Supabase...");
 
         // Use Supabase for signup (no separate image upload needed)
@@ -141,6 +166,7 @@ class _UnionSignupPageState extends State<UnionSignupPage> {
             SnackBar(
               content: Text(result['message'] ?? 'Signup failed'),
               backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
             ),
           );
         }
@@ -148,10 +174,26 @@ class _UnionSignupPageState extends State<UnionSignupPage> {
         setState(() => isLoading = false);
         print("❌ Signup exception: $e");
         
+        String errorMessage = 'An unexpected error occurred';
+        if (e.toString().contains('Failed to fetch') || e.toString().contains('network')) {
+          errorMessage = 'Network connection error. Please check your internet connection and try again.';
+        } else if (e.toString().contains('timeout')) {
+          errorMessage = 'Request timed out. Please check your internet connection and try again.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('❌ Signup Failed'),
+                SizedBox(height: 4),
+                Text(errorMessage, style: TextStyle(fontSize: 12)),
+              ],
+            ),
             backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
           ),
         );
       }

@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:typed_data';
+import 'package:http/http.dart' as http;
+import '../config/supabase_config.dart';
 
 class SupabaseService {
   static final SupabaseClient _client = Supabase.instance.client;
@@ -13,6 +15,33 @@ class SupabaseService {
       url: url,
       anonKey: anonKey,
     );
+  }
+
+  // Network connectivity check for Supabase
+  static Future<bool> checkSupabaseConnectivity() async {
+    try {
+      print('🌐 Checking Supabase connectivity...');
+      
+      // Try to make a simple request to Supabase using the config values
+      final response = await http.get(
+        Uri.parse('${SupabaseConfig.supabaseUrl}/rest/v1/'),
+        headers: {
+          'apikey': SupabaseConfig.supabaseAnonKey,
+          'Authorization': 'Bearer ${SupabaseConfig.supabaseAnonKey}',
+        },
+      ).timeout(const Duration(seconds: 10));
+      
+      if (response.statusCode == 200 || response.statusCode == 404) {
+        print('✅ Supabase connectivity check passed');
+        return true;
+      } else {
+        print('⚠️ Supabase responded with status: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      print('❌ Supabase connectivity check failed: $e');
+      return false;
+    }
   }
 
   // User Authentication & Management
@@ -29,15 +58,37 @@ class SupabaseService {
     String? businessName,
   }) async {
     try {
-      // Create auth user
+      print('🔐 Starting Supabase signup process...');
+      print('📧 Email: $email');
+      print('👤 Role: $role');
+      print('🏢 Building: $building');
+      
+      // Check if Supabase client is properly initialized
+      if (_client.auth.currentSession == null) {
+        print('✅ No existing session, proceeding with signup');
+      } else {
+        print('⚠️ Existing session found, signing out first');
+        await _client.auth.signOut();
+      }
+
+      // Create auth user with better error handling
+      print('🔐 Creating authentication user...');
       final response = await _client.auth.signUp(
         email: email,
         password: password,
       );
 
+      print('📝 Auth response received');
+      print('👤 User ID: ${response.user?.id}');
+      print('📧 User Email: ${response.user?.email}');
+      print('✅ Email Confirmed: ${response.user?.emailConfirmedAt != null}');
+
       if (response.user != null) {
+        print('✅ Authentication user created successfully');
+        
         // Insert user data into custom users table
-        await _client.from('users').insert({
+        print('💾 Inserting user data into users table...');
+        final userData = {
           'auth_user_id': response.user!.id,
           'email': email,
           'first_name': firstName,
@@ -49,20 +100,74 @@ class SupabaseService {
           'category': category ?? '',
           'business_name': businessName ?? '',
           'is_approved': role == 'admin', // Auto-approve admin
-        });
+        };
+        
+        print('📊 User data to insert: $userData');
+        
+        await _client.from('users').insert(userData);
+        print('✅ User data inserted successfully');
+
+        // Sign out the user immediately after signup (they need approval)
+        if (role != 'admin') {
+          print('🚪 Signing out user (pending approval)');
+          await _client.auth.signOut();
+        }
 
         return {
           'success': true,
           'message': role == 'admin' 
               ? 'Admin account created successfully' 
-              : 'Account created successfully. Waiting for approval.',
+              : 'Account created successfully. Please wait for admin approval.',
           'user_id': response.user!.id,
         };
+      } else {
+        print('❌ No user returned from auth signup');
+        return {'success': false, 'message': 'Failed to create authentication account'};
       }
-      return {'success': false, 'message': 'Failed to create account'};
+    } on AuthException catch (authError) {
+      print('🔐 Supabase Auth Error: ${authError.message}');
+      print('🔐 Auth Error Code: ${authError.statusCode}');
+      
+      String userMessage = 'Authentication failed';
+      if (authError.message.contains('already registered')) {
+        userMessage = 'This email is already registered. Please use a different email or try logging in.';
+      } else if (authError.message.contains('Invalid email')) {
+        userMessage = 'Please enter a valid email address.';
+      } else if (authError.message.contains('Password')) {
+        userMessage = 'Password must be at least 6 characters long.';
+      } else if (authError.message.contains('network') || authError.message.contains('fetch')) {
+        userMessage = 'Network connection error. Please check your internet connection and try again.';
+      } else {
+        userMessage = authError.message;
+      }
+      
+      return {'success': false, 'message': userMessage};
+    } on PostgrestException catch (dbError) {
+      print('💾 Database Error: ${dbError.message}');
+      print('💾 DB Error Code: ${dbError.code}');
+      
+      String userMessage = 'Database error occurred';
+      if (dbError.message.contains('duplicate key')) {
+        userMessage = 'This email is already registered. Please use a different email.';
+      } else {
+        userMessage = 'Failed to save user information. Please try again.';
+      }
+      
+      return {'success': false, 'message': userMessage};
     } catch (e) {
-      print('Sign up error: $e');
-      return {'success': false, 'message': e.toString()};
+      print('❌ Unexpected signup error: $e');
+      print('❌ Error type: ${e.runtimeType}');
+      
+      String userMessage = 'An unexpected error occurred';
+      if (e.toString().contains('Failed to fetch') || e.toString().contains('network')) {
+        userMessage = 'Network connection error. Please check your internet connection and try again.';
+      } else if (e.toString().contains('timeout')) {
+        userMessage = 'Request timed out. Please check your internet connection and try again.';
+      } else {
+        userMessage = 'Signup failed. Please try again later.';
+      }
+      
+      return {'success': false, 'message': userMessage};
     }
   }
 
