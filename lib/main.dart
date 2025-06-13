@@ -11,9 +11,24 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'utils/token_utility.dart';
 import 'utils/payment_proof_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+// Supabase imports
+import 'services/supabase_service.dart';
+import 'config/supabase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Supabase
+  try {
+    await SupabaseService.initialize(
+      url: SupabaseConfig.supabaseUrl,
+      anonKey: SupabaseConfig.supabaseAnonKey,
+    );
+    print('✅ Supabase initialized successfully');
+  } catch (e) {
+    print('❌ Failed to initialize Supabase: $e');
+    print('💡 Make sure to update your Supabase credentials in supabase_config.dart');
+  }
   
   // Initialize PaymentProofService
   await PaymentProofService.instance.initialize();
@@ -39,39 +54,43 @@ String getBaseUrl() {
   List<String> serverUrls;
   
   if (kIsWeb) {
-    // For web, prioritize localhost since the Dart backend server is running locally
+    // For web, prioritize cloud server for global access
     serverUrls = [
-      'http://localhost:5000',      // Highest priority for same-machine development
-      'http://127.0.0.1:5000',      // Alternative localhost
-      'http://192.168.18.16:5000',  // External IP as last resort
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
+      'http://localhost:5000',                     // Local development
+      'http://127.0.0.1:5000',                     // Alternative localhost
+      'http://192.168.18.16:5000',                 // Local network fallback
     ];
-    print('🔍 Platform: Web, prioritizing localhost for same-machine connections');
+    print('🔍 Platform: Web, prioritizing cloud server for global access');
   } else if (Platform.isAndroid) {
-    // For Android, prioritize network IP for real devices
+    // For Android, prioritize cloud server for global access
     serverUrls = [
-      'http://192.168.18.16:5000',   // Network IP (highest priority for real devices)
-      'http://10.0.2.2:5000',        // Android emulator to host loopback
-      'http://localhost:5000',       // Direct localhost (unlikely to work on real devices)
-      'http://127.0.0.1:5000',       // Another localhost variant
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
+      'http://192.168.18.16:5000',                 // Local network fallback
+      'http://10.0.2.2:5000',                      // Android emulator fallback
+      'http://localhost:5000',                     // Direct localhost
+      'http://127.0.0.1:5000',                     // Another localhost variant
     ];
-    print('🔍 Platform: Android, prioritizing 10.0.2.2 for emulator');
+    print('🔍 Platform: Android, prioritizing cloud server for global access');
   } else if (Platform.isIOS) {
-    // For iOS simulator, localhost works directly
+    // For iOS, prioritize cloud server for global access
     serverUrls = [
-      'http://localhost:5000',      // iOS simulator to host
-      'http://127.0.0.1:5000',      // Alternative localhost
-      'http://192.168.18.16:5000',  // External IP for physical device
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
+      'http://localhost:5000',                     // iOS simulator to host
+      'http://127.0.0.1:5000',                     // Alternative localhost
+      'http://192.168.18.16:5000',                 // External IP for physical device
     ];
-    print('🔍 Platform: iOS, prioritizing localhost for simulator');
+    print('🔍 Platform: iOS, prioritizing cloud server for global access');
   } else {
-    // Default fallback order
+    // Default fallback order with cloud server first
     serverUrls = [
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
       'http://localhost:5000',
       'http://127.0.0.1:5000',
       'http://192.168.18.16:5000',
       'http://10.0.2.2:5000'
     ];
-    print('🔍 Platform: Other, using default priority order');
+    print('🔍 Platform: Other, prioritizing cloud server for global access');
   }
   
   String primaryUrl = serverUrls[0]; // Default to first server
@@ -89,12 +108,14 @@ List<String> getFallbackUrls() {
   List<String> serverUrls;
   if (kIsWeb) {
     serverUrls = [
-      'http://localhost:5000',      // Highest priority for same-machine development
-      'http://127.0.0.1:5000',      // Alternative localhost
-      'http://192.168.18.16:5000',  // External IP as last resort
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
+      'http://localhost:5000',                     // Local development
+      'http://127.0.0.1:5000',                     // Alternative localhost
+      'http://192.168.18.16:5000',                 // Local network fallback
     ];
   } else if (Platform.isAndroid) {
     serverUrls = [
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
       'http://10.0.2.2:5000',
       'http://192.168.18.16:5000',
       'http://localhost:5000', 
@@ -102,12 +123,14 @@ List<String> getFallbackUrls() {
     ];
   } else if (Platform.isIOS) {
     serverUrls = [
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
       'http://localhost:5000',
       'http://127.0.0.1:5000',
       'http://192.168.18.16:5000',
     ];
   } else {
     serverUrls = [
+      'https://homeconnect-backend.onrender.com',  // 🌍 CLOUD SERVER (REPLACE WITH YOUR URL)
       'http://localhost:5001',
       'http://localhost:5000',
       'http://127.0.0.1:5001',
@@ -272,51 +295,23 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     
-    print('🔑 Attempting login with email: $email, role: $selectedRole');
+    print('🔑 Attempting Supabase login with email: $email, role: $selectedRole');
 
-    // Admin Shortcut - DIRECT ROUTE WITHOUT API CALL
-    if (email == 'admin@homeconnect.com' && password == 'Admin@12345') {
-      print('✅ Admin login successful (direct route)');
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AdminDashboard()));
-      return;
-    }
-
-    // Get the base URL using the updated function
-    String baseUrl = getBaseUrl();
-    print('🔗 Login using API URL: $baseUrl');
-    
-    final url = Uri.parse('$baseUrl/login');
-    print('🔗 Login URL: $url');
-    
     try {
-      print('🌐 Sending login request to: $url');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
+      // Use Supabase authentication
+      final result = await SupabaseService.signIn(
+        email: email,
+        password: password,
       );
 
-      print('📥 Response status code: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final user = data['user'];
-        
-        if (user == null) {
-          throw Exception('Invalid response format: missing user data');
-        }
+      if (result['success'] == true) {
+        final user = result['user'];
         
         final userId = user['id']?.toString() ?? '';
         final firstName = user['first_name']?.toString() ?? '';
         final role = user['role']?.toString() ?? '';
         
-        print('✅ Login successful - Role: $role, Name: $firstName, ID: $userId');
-        
-        // Store the token if provided
-        final token = data['token']?.toString();
-        if (token != null && token.isNotEmpty) {
-          TokenUtility.setToken(token);
-        }
+        print('✅ Supabase login successful - Role: $role, Name: $firstName, ID: $userId');
         
         // Store user data in SharedPreferences for use throughout the app
         try {
@@ -396,6 +391,13 @@ class _LoginPageState extends State<LoginPage> {
               ),
             );
           }
+        } else if (role.toLowerCase() == 'admin') {
+          // Admin user
+          print('✅ Admin login successful');
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (_) => const AdminDashboard())
+          );
         } else {
           print('❌ Unknown role: $role');
           ScaffoldMessenger.of(context).showSnackBar(
@@ -403,11 +405,9 @@ class _LoginPageState extends State<LoginPage> {
           );
         }
       } else {
-        print('❌ Login failed: ${response.statusCode}');
-        final errorData = jsonDecode(response.body);
-        final errorMessage = errorData['error'] ?? 'Login failed';
+        print('❌ Supabase login failed: ${result['message']}');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage)),
+          SnackBar(content: Text(result['message'] ?? 'Login failed')),
         );
       }
     } catch (e) {
